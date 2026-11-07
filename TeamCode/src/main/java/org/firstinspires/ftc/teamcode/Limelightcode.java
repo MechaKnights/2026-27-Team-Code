@@ -15,14 +15,25 @@ import java.util.List;
 /*
  * Limelight AprilTag tracking for the turret bot.
  *
- * Each goal is a seesaw with two sides, and each side has two AprilTags. We shoot into the
+ * Each goal is a seesaw with two sides, and each side has four AprilTags. We shoot into the
  * side facing up. Each side has its own Limelight pipeline with an ID filter so it only sees
- * that side's two tags. We aim at the midpoint between them.
+ * that side's four tags. We aim at the average position of the tags we can see (the center
+ * of the side when all four are visible).
+ *
+ * The turret tracks the goal automatically whenever the tags are visible, no button needed.
+ * If there's no motor called TURRET_MOTOR_NAME in the robot configuration, this still runs
+ * in camera-only mode and says so on the Driver Station.
+ *
+ * Turret encoder: the encoder is zeroed when INIT is pressed, so the turret must be facing
+ * forward at that moment. This only matters for the range limits (USE_TURRET_LIMITS);
+ * aiming itself uses the camera, not the encoder. See "OPTION 3" below for a way to only
+ * zero it once (in autonomous) instead.
  *
  * Controls:
  *   During INIT:  X = blue alliance, B = red alliance
  *   INIT or PLAY: left bumper = side 1, right bumper = side 2 (pick the side facing up)
- *   During PLAY:  hold A = turret aims and flywheel spins up (only if USE_TURRET / USE_SHOOTER)
+ *   During PLAY:  turret aims on its own whenever it sees the goal
+ *                 hold A = flywheel spins up (only if USE_SHOOTER)
  *                 while holding A, pull right trigger = shoot (only fires when aimed and up to speed)
  *
  * Things marked TODO need real numbers from your robot / the game manual.
@@ -32,10 +43,20 @@ public class Limelightcode extends LinearOpMode {
 
     // ---------------- Configuration ----------------
 
-    // Set to true once the turret motor is on the robot and in the configuration.
-    // While false, this only reads the camera and prints telemetry (no motors move).
-    static final boolean USE_TURRET = false;
+    // While false, this only reads the camera and prints telemetry (the turret never moves).
+    // While true, the turret is used if a motor with this name is in the configuration.
+    static final boolean USE_TURRET = true;
     static final String TURRET_MOTOR_NAME = "turret"; // TODO: match the robot configuration
+
+    // Turret range limits, in encoder ticks from where the turret was zeroed (facing forward).
+    // Turn on if the turret can't spin all the way around (wires, hard stops, etc).
+    // To find the numbers: zero the turret facing forward, turn it by hand to each end,
+    // and read "Turret position" on the Driver Station.
+    // If the turret stops at the wrong end, the motor's power and ticks go opposite ways:
+    // reverse the motor direction.
+    static final boolean USE_TURRET_LIMITS = false;
+    static final int TURRET_MIN_TICKS = -1000; // TODO: measure
+    static final int TURRET_MAX_TICKS = 1000;  // TODO: measure
 
     // Set to true once the shooter is on the robot and in the configuration.
     static final boolean USE_SHOOTER = false;
@@ -46,7 +67,7 @@ public class Limelightcode extends LinearOpMode {
     static final double SHOOTER_VEL_TOLERANCE = 50;     // ticks/sec, "up to speed" when within this
 
     // Pipelines set up in the Limelight web UI (http://limelight.local:5801), one per goal side,
-    // each with an ID filter for that side's two tags. -1 = not set up yet.
+    // each with an ID filter for that side's four tags. -1 = not set up yet.
     // If side 1 and side 2 are backwards, swap the numbers.
     static final int RED_SIDE1_PIPELINE = 0;
     static final int RED_SIDE2_PIPELINE = 1;
@@ -57,6 +78,9 @@ public class Limelightcode extends LinearOpMode {
     static final double CAMERA_HEIGHT_IN = 10.0;     // lens height off the floor
     static final double CAMERA_PITCH_DEG = 20.0;     // how far the camera is tilted up
     static final double TAG_CENTER_HEIGHT_IN = 6.0;  // center of the goal tags off the floor
+
+    // Each goal side has this many AprilTags. Fewer visible = aim may be a little off.
+    static final int TAGS_PER_SIDE = 4;
 
     // Turret aiming (simple P controller on tx). Tune kP first, then the rest.
     static final double TURRET_KP = 0.02;            // power per degree of error
@@ -86,7 +110,7 @@ public class Limelightcode extends LinearOpMode {
 
     // Updated every loop by readLimelight()
     boolean hasTarget;
-    int tagsSeen;   // how many of the goal side's tags are visible (0, 1 or 2)
+    int tagsSeen;   // how many of the goal side's tags are visible (0 to TAGS_PER_SIDE)
     double tx;      // degrees to goal center, + means right of crosshair
     double ty;      // degrees, + means above crosshair
 
@@ -96,8 +120,17 @@ public class Limelightcode extends LinearOpMode {
         limelight.start(); // without this, getLatestResult() returns null
 
         if (USE_TURRET) {
-            turretMotor = hardwareMap.get(DcMotor.class, TURRET_MOTOR_NAME);
+            // tryGet returns null instead of crashing if the motor isn't in the configuration
+            turretMotor = hardwareMap.tryGet(DcMotor.class, TURRET_MOTOR_NAME);
+        }
+        if (turretMotor != null) {
             turretMotor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+
+            // Zero the encoder now, so the turret must be facing forward when INIT is pressed.
+            // OPTION 3: to only zero it once in autonomous instead, comment out the
+            // STOP_AND_RESET_ENCODER line below and see the other OPTION 3 part in the INIT loop.
+            turretMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            turretMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); // we set power ourselves; the encoder still counts
         }
 
         if (USE_SHOOTER) {
@@ -116,7 +149,24 @@ public class Limelightcode extends LinearOpMode {
             readSideButtons();
             updatePipeline();
 
+            // OPTION 3: don't zero the turret every time TeleOp starts. The hub remembers the
+            // encoder count between OpModes until the robot is powered off, so it only needs
+            // zeroing once, at the start of autonomous (with the turret facing forward).
+            // To use it:
+            //   1. Comment out the STOP_AND_RESET_ENCODER line above (before this loop).
+            //   2. Add STOP_AND_RESET_ENCODER then RUN_WITHOUT_ENCODER for the turret at the
+            //      start of autonomous.
+            //   3. Uncomment the lines below. They let you zero it by hand when there was no
+            //      autonomous (practice): face the turret forward, then press BACK.
+            // Warning: if the robot loses power mid-match, the count is wrong until re-zeroed.
+            //
+            // if (turretMotor != null && gamepad1.back) {
+            //     turretMotor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            //     turretMotor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            // }
+
             showAllianceAndSide();
+            showTurretStatus();
             telemetry.addLine("X = blue, B = red. Bumpers = side. Press Play when ready.");
             telemetry.update();
         }
@@ -143,8 +193,18 @@ public class Limelightcode extends LinearOpMode {
                 turretPower += Math.signum(turretPower) * TURRET_MIN_POWER;
                 turretPower = Range.clip(turretPower, -TURRET_MAX_POWER, TURRET_MAX_POWER);
             }
-            if (USE_TURRET) {
-                turretMotor.setPower(gamepad1.a ? turretPower : 0);
+            // Don't drive past the range limits (still allowed to move back toward the middle)
+            boolean atLimit = false;
+            if (turretMotor != null && USE_TURRET_LIMITS) {
+                int pos = turretMotor.getCurrentPosition();
+                if ((pos >= TURRET_MAX_TICKS && turretPower > 0) || (pos <= TURRET_MIN_TICKS && turretPower < 0)) {
+                    turretPower = 0;
+                    atLimit = true;
+                }
+            }
+            // Always tracking: no button needed. With no target, power is 0 and BRAKE holds it.
+            if (turretMotor != null) {
+                turretMotor.setPower(turretPower);
             }
 
             // Shooter: holding A spins the flywheel up. Right trigger only feeds a game piece
@@ -161,9 +221,13 @@ public class Limelightcode extends LinearOpMode {
             }
 
             showAllianceAndSide();
-            telemetry.addData("Goal tags seen", tagsSeen);
-            if (tagsSeen == 1) {
-                telemetry.addLine("Only 1 tag visible - aim may be a little off");
+            showTurretStatus();
+            if (atLimit) {
+                telemetry.addLine("Turret at its range limit - goal is out of reach");
+            }
+            telemetry.addData("Goal tags seen", "%d of %d", tagsSeen, TAGS_PER_SIDE);
+            if (tagsSeen > 0 && tagsSeen < TAGS_PER_SIDE) {
+                telemetry.addLine("Not all tags visible - aim may be a little off");
             }
             if (hasTarget) {
                 telemetry.addData("tx / ty", "%.1f / %.1f", tx, ty);
@@ -180,10 +244,24 @@ public class Limelightcode extends LinearOpMode {
             telemetry.update();
         }
 
+        if (turretMotor != null) {
+            turretMotor.setPower(0);
+        }
         if (USE_SHOOTER) {
             shooterMotor.setVelocity(0);
         }
         limelight.stop();
+    }
+
+    /** Shows whether the turret motor was found, and its encoder position. */
+    void showTurretStatus() {
+        if (!USE_TURRET) {
+            telemetry.addLine("Turret off (USE_TURRET = false) - camera only");
+        } else if (turretMotor == null) {
+            telemetry.addLine("No motor named \"" + TURRET_MOTOR_NAME + "\" in the configuration - camera only");
+        } else {
+            telemetry.addData("Turret position (ticks)", turretMotor.getCurrentPosition());
+        }
     }
 
     /** Left bumper = side 1, right bumper = side 2. */
