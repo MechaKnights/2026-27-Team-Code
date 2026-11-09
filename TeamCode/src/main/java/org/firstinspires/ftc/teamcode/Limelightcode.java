@@ -71,8 +71,8 @@ public class Limelightcode extends LinearOpMode {
     // If side 1 and side 2 are backwards, swap the numbers.
     static final int RED_SIDE1_PIPELINE = 0;
     static final int RED_SIDE2_PIPELINE = 1;
-    static final int BLUE_SIDE1_PIPELINE = -1; // TODO: set up in the Limelight web UI
-    static final int BLUE_SIDE2_PIPELINE = -1; // TODO: set up in the Limelight web UI
+    static final int BLUE_SIDE1_PIPELINE = 2;
+    static final int BLUE_SIDE2_PIPELINE = 3;
 
     // TODO: Measure these on the robot / field. Used for distance estimation.
     static final double CAMERA_HEIGHT_IN = 10.0;     // lens height off the floor
