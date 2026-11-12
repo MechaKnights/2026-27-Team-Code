@@ -246,7 +246,7 @@ public final class MecanumDrive {
 
 
         launcherOne = hardwareMap.get(DcMotorEx.class,"launcherOne");
-        launcherTwo = hardwareMap.get(DcMotorEx.class, "launcherTwo");
+        //launcherTwo = hardwareMap.get(DcMotorEx.class, "launcherTwo");
 
         leftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -255,7 +255,7 @@ public final class MecanumDrive {
 
 
         launcherOne.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-        launcherTwo.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        //launcherTwo.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         turret.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
         //launcher.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -266,7 +266,7 @@ public final class MecanumDrive {
         rightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
         launcherOne.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        launcherTwo.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        //launcherTwo.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
         launcherTwo.setDirection(DcMotorEx.Direction.REVERSE);
 
