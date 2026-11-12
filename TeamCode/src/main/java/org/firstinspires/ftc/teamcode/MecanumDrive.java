@@ -111,8 +111,9 @@ public final class MecanumDrive {
             new ProfileAccelConstraint(PARAMS.minProfileAccel, PARAMS.maxProfileAccel);
 
     public final DcMotorEx leftFront, leftBack, rightBack, rightFront;
-    public final DcMotorEx launcherOne,launcherTwo, turret;
+    public final DcMotorEx launcherOne,/*launcherTwo,*/ turret;
     public final CRServo intakeOne, intakeTwo;
+    public final Servo hood;
 
     //public final RevBlinkinLedDriver blinkin;
 
@@ -243,6 +244,7 @@ public final class MecanumDrive {
         intakeOne = hardwareMap.get(CRServo.class,"intakeOne");
         intakeTwo = hardwareMap.get(CRServo.class,"intakeTwo");
         turret = hardwareMap.get(DcMotorEx.class, "turret");
+        hood = hardwareMap.get(Servo.class,"hood");
 
 
         launcherOne = hardwareMap.get(DcMotorEx.class,"launcherOne");
@@ -268,7 +270,7 @@ public final class MecanumDrive {
         launcherOne.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         //launcherTwo.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
-        launcherTwo.setDirection(DcMotorEx.Direction.REVERSE);
+        //launcherTwo.setDirection(DcMotorEx.Direction.REVERSE);
 
         // TODO: reverse motor directions if needed
         //   leftFront.setDirection(DcMotorSimple.Direction.REVERSE);
